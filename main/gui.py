@@ -7,6 +7,7 @@ from ffmpeg_logic import ffmpeg_logic
 from tkinter import filedialog
 from tkinter import messagebox
 from pathlib import Path
+import threading
 
 # important global variables for any object to use
 valid_photo_types = [
@@ -32,6 +33,7 @@ class GUI:
         self.root.geometry("600x400") 
         self.frame = tk.Frame(self.root)
         self.conversion_frame = tk.Frame(self.root)
+        
 
         # variable to handle the conversion update function
         self.converting = True
@@ -56,7 +58,7 @@ class GUI:
         self.file_type.set("File")
         self.input_file_label.set("No file selected.")
         self.output_file_label.set("No file selected.")
-        self.current_conversion.set("Nothing converting...")
+        self.current_conversion.set(" ")
 
     # Function to handle choosing fil directories
     def choose_file(self, label_type):
@@ -124,50 +126,62 @@ class GUI:
     # Function to handle file conversions
     def start_conversion(self):
         # validate options before starting conversion
-        if self.validate_options() == False:
+        if not self.validate_options():
             self.error_label.set(" ")
             # create a ffmpeg_logic object to handle conversion
-            self.ffmpeg_logic = ffmpeg_logic(self.file_type.get(), self.media_type.get(), self.desired_filetype.get(), self.input_directory.get(), self.output_directory.get())
+            self.ffmpeg_logic = ffmpeg_logic(self.file_type.get(), self.media_type.get(), self.desired_filetype.get(), self.input_directory.get(), self.output_directory.get(), self.gui_callback)
             # only start if the logic is valid, then switch screen
-            if self.ffmpeg_logic.valid == True:
+            if self.ffmpeg_logic.valid:
                 self.converting = True
                 self.frame.grid_forget()
                 self.conversion_frame.grid()
-                self.conversion_update = self.root.after(1000, self.update_conversion)
+                self.update_conversion("Start", None)
+                threading.Thread(target=self.ffmpeg_logic.convert_file, daemon=True).start()
             else:
                 self.error_label.set("Error has occured with ffmpeg, please retry.")
 
-    # Function called permanently each second, won't do anything    
-    def update_conversion(self):
+    # middle man function to help communicate between ffmpeg logic and tkinter
+    def gui_callback(self, update, info):
+        self.root.after(0, self.update_conversion, update, info)
+
+    # used as a communication tool between ffmpeg logic class and the gui  
+    def update_conversion(self, update, info):
         # only do anything if conversion is actually happening
         if self.converting == True:
-            # if theres not a file converting, make one convert
-            if self.ffmpeg_logic.get_converting() == False:
+            # used to start a new file
+            if update == "Start":
                 print("starting new file...")
-                self.ffmpeg_logic.convert_file()
-                self.current_conversion = self.ffmpeg_logic.get_current_file()
-            else:
+                # update labels
+                self.current_conversion.set(" ")
+                self.starting_label = tk.Label(self.conversion_frame, text="Doing conversion...").grid(column=0, row=0, padx=0, pady=10)
+            # used to update gui info
+            elif update == "Update":
                 print("updating!!!")
-                self.current_conversion = self.ffmpeg_logic.get_current_file()
-                self.current_time = self.ffmpeg_logic.get_current_time()
+                self.current_conversion.set(info[0])
+                self.current_time.set(info[1])
+            # used to start a new file
+            elif update == "Finished":
+                print("finished one conversion, starting another")
+                self.ffmpeg_logic.convert_file()
             # if all files done, update gui and stop changes in loop
-            if self.ffmpeg_logic.get_finished() == True:
+            elif update == "Complete":
                 print("conversion finished! stopping loop.")
                 self.converting = False
-                self.current_conversion = "Done!"
+                self.current_conversion.set("Done!")
+                self.current_time.set("")
                 self.starting_label = tk.Label(self.conversion_frame, text="Finished conversion!").grid(column=0, row=0, padx=0, pady=10)
-                self.end_button = tk.Button(self.conversion_frame, text="Return to Options", command=self.end_conversion).grid(column=0, row=3)
+        # used to switch screens
+        if update == "Cancelled":
+            self.converting = False
+            self.conversion_frame.grid_forget()
+            self.frame.grid()
 
 
     
 
-    # used to switch menus on conversion end
+    # used to tell the conversion process to halt
     def end_conversion(self):
-        self.converting = False
-        if self.conversion_update:
-            self.root.after_cancel(self.conversion_update)
-        self.conversion_frame.grid_forget()
-        self.frame.grid()
+        self.update_conversion("Cancelled", None)
     
     # Function used to create all of the elements for the converison menu along with attach their functions
     def create_conversion_gui(self):
@@ -185,14 +199,14 @@ class GUI:
     def create_options_gui(self):
         # create radio buttons for file type
         file_label = tk.Label(self.frame, text="File Type: ").grid(column=0, row=0, padx=0, pady=10)
-        folder_radio = tk.Radiobutton(self.frame, text="Folder", variable=self.file_type, command=self.refresh_directories, value="Folder").grid(column=2, row=0, padx=0, pady=10)
-        file_radio = tk.Radiobutton(self.frame, text="Single File", variable=self.file_type, command=self.refresh_directories, value="File").grid(column=1, row=0, padx=0, pady=10)
+        folder_radio = tk.Radiobutton(self.frame, text="Folder", variable=self.file_type, command=self.refresh_directories, value="Folder").grid(column=2, row=0)
+        file_radio = tk.Radiobutton(self.frame, text="Single File", variable=self.file_type, command=self.refresh_directories, value="File").grid(column=1, row=0)
 
         # create radio buttons for media type
         starting_label = tk.Label(self.frame, text="Media Type: ").grid(column=0, row=1, padx=0, pady=10)
-        photo_radio = tk.Radiobutton(self.frame, text="Photo", variable=self.media_type, command=self.refresh_dropdowns, value="Photo").grid(column=1, row=1, padx=0, pady=10)
-        video_radio = tk.Radiobutton(self.frame, text="Video", variable=self.media_type, command=self.refresh_dropdowns, value="Video").grid(column=2, row=1, padx=0, pady=10)
-        audio_radio = tk.Radiobutton(self.frame, text="Audio", variable=self.media_type, command=self.refresh_dropdowns, value="Audio").grid(column=3, row=1, padx=0, pady=10)
+        photo_radio = tk.Radiobutton(self.frame, text="Photo", variable=self.media_type, command=self.refresh_dropdowns, value="Photo").grid(column=1, row=1)
+        video_radio = tk.Radiobutton(self.frame, text="Video", variable=self.media_type, command=self.refresh_dropdowns, value="Video").grid(column=2, row=1)
+        audio_radio = tk.Radiobutton(self.frame, text="Audio", variable=self.media_type, command=self.refresh_dropdowns, value="Audio").grid(column=3, row=1)
 
         # create buttons/labels for input and output directories
         input_label = tk.Label(self.frame, text="Choose input files: ").grid(column=0, row=2, padx=5, pady=10)
