@@ -6,6 +6,11 @@ import ffmpeg
 import threading
 from pathlib import Path
 
+# need this for folder checks
+valid_photo_conversion_types = [".png", "jpg", ".jpeg", ".webp" ".bmp", ".apng", ".ico"]
+valid_audio_conversion_types = [".mp3", ".wav", ".m4a", ".aac", ".wma", ".alac", ".flac", ".ogg"]
+valid_video_conversion_types = [".mp4", ".wmv", ".mov", ".mkv", ".hevc"]
+
 class ffmpeg_logic:
     # init function, used to make default window and variables
     def __init__(self, file_type, media_type, desired_type, input_string, output_string, gui_callback):
@@ -15,6 +20,8 @@ class ffmpeg_logic:
         self.current_file = "None"
         self.current_file_name = "None"
         self.current_time = "00:00:00.00"
+        self.total_duration = "None"
+        self.current_progress = "0%"
         self.file_queue = []# file name in folder
         self.file_type = file_type
         self.media_type = media_type
@@ -23,6 +30,72 @@ class ffmpeg_logic:
         self.gui_callback = gui_callback # used to notify gui of info
         self.process = None  # to store the current FFmpeg process
         self.cancel_flag = threading.Event()  # to flag the cancellation request
+    
+    # function used to validate file extension of a file
+    def validate_file(self, extension):
+        if self.media_type == "Photo":
+            return (extension in valid_photo_conversion_types)
+        elif self.media_type == "Audio":
+            return (extension in valid_audio_conversion_types)
+        else:
+            return (extension in valid_video_conversion_types)
+    
+    # function used to get the best vcodec, defaults to copy
+    def get_vcodec(self):
+        codec = 'copy'
+        if self.desired_type == ".mp4" or self.desired_type == ".mkv" or self.desired_type == ".hevc" or self.desired_type == ".m4v":
+            codec = 'libx265'
+        elif self.desired_type == ".wmv":
+            codec = 'wmv2'
+        elif self.desired_type == ".webm":
+            codec = 'vp8'
+        elif self.desired_type == ".mov":
+            codec = 'prores'
+        return codec
+
+    # function used to get the best acodec, defaults to copy
+    def get_acodec(self):
+        codec = 'copy'
+        if self.desired_type == ".mp4" or self.desired_type == ".mkv" or self.desired_type == ".hevc" or self.desired_type == ".m4v":
+            codec = 'aac'
+        elif self.desired_type == ".wmv":
+            codec = 'wmav2'
+        elif self.desired_type == ".webm":
+            codec = 'opus'
+        elif self.desired_type == ".mov":
+            codec = 'pcm_s16le'
+        return codec
+    
+    # function used to get current seconds from a time string
+    def get_current_seconds(self, time_string):
+        time_parts = time_string.split(":")
+        if len(time_parts) == 3:  # hh:mm:ss.xx format
+            return float(time_parts[2])
+        elif len(time_parts) == 2:  # mm:ss.xx format
+            return float(time_parts[1])
+        else:
+            try:
+                return float(time_parts[0])
+            except ValueError:
+                print("Not a float.")
+    
+    # function used to update current progress variable
+    def update_progress(self, time_string):
+        if not self.total_duration == "None":
+            current_seconds = self.get_current_seconds(time_string)
+            current_percentage = round((current_seconds / self.total_duration) * 100, 1)
+            self.current_progress = str(current_percentage) + "%"
+    
+    def set_total_duration(self):
+        try:
+            # try to probe the video file
+            probe = ffmpeg.probe(self.current_file, v='error', select_streams='v:0', show_entries='stream=duration')
+            # get duration from the probe data
+            self.total_duration = float(probe['streams'][0]['duration'])  
+        except ffmpeg.Error as e:
+            self.total_duration = "None"
+            self.current_progress = "Invalid duration"
+        
     
     # function used to validate certain info and fill file queue, will return true if everything happens as expected.
     def setup_logic(self, input_string, output_string):
@@ -38,9 +111,13 @@ class ffmpeg_logic:
                 print("single file we good")
                 self.file_queue.append(self.input_directory)
             else:
-                 # go through each file and add path to queue
+                 # go through each file in path and add path to queue if valid file type
                  for filename in os.listdir(self.input_directory):
-                    self.file_queue.append(os.path.join(self.input_directory, filename))
+                    current_file = os.path.join(self.input_directory, filename)
+                    extension = os.path.splitext(current_file)[1].lower()
+                    # check current file for valid file type
+                    if self.validate_file(extension):
+                        self.file_queue.append(current_file)
         else:
             valid = False
         return valid
@@ -84,6 +161,7 @@ class ffmpeg_logic:
             )
         elif (self.media_type == "Audio"):
             # for audio, track progress, but no custom settings
+            self.set_total_duration()
             self.process = (
                 ffmpeg
                 .input(self.current_file)
@@ -92,10 +170,14 @@ class ffmpeg_logic:
                 .run_async(pipe_stdout=True, pipe_stderr=True)  # run it asynchronously
             )
         else:
+            # get best vcodec and acodec for ffmpeg to use before starting process for this
+            current_vcodec = self.get_vcodec()
+            current_acodec = self.get_acodec()
+            self.set_total_duration()
             self.process = (
                 ffmpeg
                 .input(self.current_file)
-                .output(new_output_directory, vcodec='libx265', acodec='aac', ab='192k', preset='fast')  # H.265 video, AAC audio
+                .output(new_output_directory, vcodec=current_vcodec, acodec=current_acodec)
                 .global_args('-progress', 'pipe:1')  # send progress to stdout
                 .run_async(pipe_stdout=True, pipe_stderr=True)  # asynchronous
             )
@@ -115,7 +197,8 @@ class ffmpeg_logic:
                     if "time=" in progress_info:
                         time_str = progress_info.split("time=")[1].split(" ")[0]
                         self.current_time = time_str
-                        self.gui_callback("Update", [self.current_file_name, self.current_time])
+                        self.update_progress(time_str)
+                        self.gui_callback("Update", [self.current_file_name, self.current_time, self.current_progress])
                 
             stdout_done.set()
         # Capture errors

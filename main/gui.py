@@ -11,18 +11,18 @@ import threading
 
 # important global variables for any object to use
 valid_photo_types = [
-    ('Valid photo files', '*.png *.jpg *.jpeg *.gif *.bmp *.apng'),
-]
-valid_video_types = [
-    ('Valid video files', '*.mp4 *.wmv *.webm *.mov *.mkv *.avc *.hevc *.m4v')
+    ('Valid photo files', '*.png *.jpg *.jpeg *.webp *.bmp *.apng *.ico'),
 ]
 valid_audio_types = [
-    ('valid audio files', '*.mp3 *.wav *.m4a *.aac *.wma *.alac *.flac')
+    ('valid audio files', '*.mp3 *.wav *.m4a *.aac *.wma *.alac *.flac *.ogg')
+]
+valid_video_types = [
+    ('Valid video files', '*.mp4 *.wmv *.mov *.mkv *.hevc')
 ]
 
-valid_photo_conversion_types = [".png", "jpg",".jpeg", ".gif", ".bmp", ".apng"]
-valid_audio_conversion_types = [".mp3", ".wav", ".m4a", ".aac", ".wma", ".alac", ".flac"]
-valid_video_conversion_types = [".mp4", ".wmv", ".webm", ".mov", ".mkv", ".avc", ".hevc", ".m4v"]
+valid_photo_conversion_types = [".png", "jpg", ".jpeg", ".webp" ".bmp", ".apng", ".ico"]
+valid_audio_conversion_types = [".mp3", ".wav", ".m4a", ".aac", ".wma", ".alac", ".flac", ".ogg"]
+valid_video_conversion_types = [".mp4", ".wmv", ".mov", ".mkv", ".hevc"]
 
 class GUI:
     # init function, used to make default window and variables
@@ -48,6 +48,7 @@ class GUI:
         self.desired_filetype = tk.StringVar()
         self.current_conversion = tk.StringVar()
         self.current_time = tk.StringVar()
+        self.current_progress = tk.StringVar()
         self.error_label = tk.StringVar()
 
 
@@ -95,8 +96,9 @@ class GUI:
         
     # Function for updating dropdowns based on selected media type
     def refresh_dropdowns(self):
-        # reset all old dropdowns, delete all options
+        # reset all old dropdowns, delete all options, and reset chosen input.
         self.desired_filetype.set(' ')
+        self.refresh_directories()
         if (self.media_type.get() == "Photo"):
             self.desired_filetype_options = tk.OptionMenu(self.frame, self.desired_filetype, *valid_photo_conversion_types).grid(column=1, row=4, padx=5, pady=10)
         elif (self.media_type.get() == "Video"):
@@ -159,6 +161,7 @@ class GUI:
                 print("updating!!!")
                 self.current_conversion.set(info[0])
                 self.current_time.set(info[1])
+                self.current_progress.set(info[2])
             # used to start a new file
             elif update == "Finished":
                 print("finished one conversion, starting another")
@@ -169,6 +172,7 @@ class GUI:
                 self.converting = False
                 self.current_conversion.set("Done!")
                 self.current_time.set("")
+                self.current_progress.set("100%")
                 self.starting_label = tk.Label(self.conversion_frame, text="Finished conversion!").grid(column=0, row=0, padx=0, pady=10)
         # used to switch screens
         if update == "Cancelled":
@@ -187,12 +191,16 @@ class GUI:
     def create_conversion_gui(self):
         # Create labels for current conversion status's
         self.starting_label = tk.Label(self.conversion_frame, text="Doing conversion...").grid(column=0, row=0, padx=0, pady=10)
-        self.file_text_label = tk.Label(self.conversion_frame, text="Current File: ").grid(column=0, row=1, padx=0, pady=10)
+        self.file_text_label = tk.Label(self.conversion_frame, text="Current file: ").grid(column=0, row=1, padx=0, pady=10)
         self.current_file_label = tk.Label(self.conversion_frame, textvariable=self.current_conversion).grid(column=1, row=1, padx=0, pady=10)
-        self.time_text_label = tk.Label(self.conversion_frame, text="Process Time: ").grid(column=0, row=2, padx=0, pady=10)
+
+        self.time_text_label = tk.Label(self.conversion_frame, text="Process time: ").grid(column=0, row=2, padx=0, pady=10)
         self.current_time_label = tk.Label(self.conversion_frame, textvariable=self.current_time).grid(column=1, row=2, padx=0, pady=10)
+
+        self.progress_text_label = tk.Label(self.conversion_frame, text="Current progress: ").grid(column=0, row=3, padx=0, pady=10)
+        self.current_progress_label = tk.Label(self.conversion_frame, textvariable=self.current_progress).grid(column=1, row=3, padx=0, pady=10)
         # Button to end conversion early if necessary
-        self.end_button = tk.Button(self.conversion_frame, text="Stop conversion", command=self.end_conversion).grid(column=0, row=3)
+        self.end_button = tk.Button(self.conversion_frame, text="Stop conversion", command=self.end_conversion).grid(column=0, row=4)
 
 
     # Function used to create all elements of the options menu along with attaching their functions
