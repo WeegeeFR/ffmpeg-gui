@@ -33,7 +33,6 @@ class GUI:
         self.root.geometry("600x400") 
         self.frame = tk.Frame(self.root)
         self.conversion_frame = tk.Frame(self.root)
-        
 
         # variable to handle the conversion update function
         self.converting = True
@@ -98,7 +97,6 @@ class GUI:
     def refresh_dropdowns(self):
         # reset all old dropdowns, delete all options, and reset chosen input.
         self.desired_filetype.set(' ')
-        self.refresh_directories()
         if (self.media_type.get() == "Photo"):
             self.desired_filetype_options = tk.OptionMenu(self.frame, self.desired_filetype, *valid_photo_conversion_types).grid(column=1, row=4, padx=5, pady=10)
         elif (self.media_type.get() == "Video"):

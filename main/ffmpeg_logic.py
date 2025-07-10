@@ -4,6 +4,8 @@
 import os
 import ffmpeg
 import threading
+import sys
+import subprocess
 from pathlib import Path
 
 # need this for folder checks
@@ -17,11 +19,12 @@ class ffmpeg_logic:
         # needed variables for conversion
         self.converting = False# used to signify if conversion process is done
         self.finished = False
-        self.current_file = "None"
-        self.current_file_name = "None"
+        self.current_file = None
+        self.current_file_name = None
         self.current_time = "00:00:00.00"
-        self.total_duration = "None"
+        self.total_duration = None
         self.current_progress = "0%"
+        self.output_directory = None
         self.file_queue = []# file name in folder
         self.file_type = file_type
         self.media_type = media_type
@@ -69,22 +72,31 @@ class ffmpeg_logic:
     # function used to get current seconds from a time string
     def get_current_seconds(self, time_string):
         time_parts = time_string.split(":")
-        if len(time_parts) == 3:  # hh:mm:ss.xx format
-            return float(time_parts[2])
-        elif len(time_parts) == 2:  # mm:ss.xx format
-            return float(time_parts[1])
-        else:
-            try:
-                return float(time_parts[0])
-            except ValueError:
-                print("Not a float.")
+        total_seconds = None
+        try:
+            if len(time_parts) == 3:  # hh:mm:ss.xx format
+                hours = int(time_parts[0])
+                minutes = int(time_parts[1])
+                seconds = float(time_parts[2])
+                total_seconds = (hours * 3600) + (minutes * 60) + seconds
+            elif len(time_parts) == 2:  # mm:ss.xx format
+                minutes = int(time_parts[0])
+                seconds = float(time_parts[1])
+                total_seconds = (minutes * 60) + seconds
+            elif len(time_parts) == 1:  # ss.xx format
+                total_seconds = float(time_parts[0])
+        except ValueError:
+            # handle cases where the conversion to int or float fails
+            return None
+        return total_seconds
     
     # function used to update current progress variable
     def update_progress(self, time_string):
-        if not self.total_duration == "None":
+        if not self.total_duration == None:
             current_seconds = self.get_current_seconds(time_string)
-            current_percentage = round((current_seconds / self.total_duration) * 100, 1)
-            self.current_progress = str(current_percentage) + "%"
+            if not current_seconds == None:
+                current_percentage = round((current_seconds / self.total_duration) * 100, 1)
+                self.current_progress = str(current_percentage) + "%"
     
     def set_total_duration(self):
         try:
@@ -93,7 +105,7 @@ class ffmpeg_logic:
             # get duration from the probe data
             self.total_duration = float(probe['streams'][0]['duration'])  
         except ffmpeg.Error as e:
-            self.total_duration = "None"
+            self.total_duration = None
             self.current_progress = "Invalid duration"
         
     
@@ -138,8 +150,16 @@ class ffmpeg_logic:
     # function used to start halting all of the ffmpeg processes
     def cancel_conversion(self):
         if self.process:
-            self.process.terminate()  # Gracefully terminate the process
-            self.cancel_flag.set()  # Set the cancel flag to indicate cancellation
+            self.process.terminate()  # gracefully terminate the process
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # process didn't terminate in time, force kill it
+                self.process.kill()
+            self.cancel_flag.set()  # set the cancel flag to indicate cancellation
+            # remove the new file after process ends
+            if os.path.exists(self.output_directory):
+                os.remove(self.output_directory)
     
     # function used to start a new process for the file conversion
     def run_process(self):
@@ -149,37 +169,37 @@ class ffmpeg_logic:
         self.current_file_name = file_name
         new_output_file = file_name + self.desired_type
         new_output_directory = os.path.join(self.output_directory, new_output_file)
-        
-        # make process depending on media type
+        self.output_directory = new_output_directory
+        cmd = None
+
+        # make command to start process based on media type, compile it
         if (self.media_type == "Photo"):
             # for photo just convert 
-            self.process = (
-                ffmpeg
-                .input(self.current_file)
-                .output(new_output_directory)
-                .run_async(pipe_stdout=True, pipe_stderr=True)  # run it asynchronously
-            )
+            cmd = ffmpeg.input(self.current_file).output(new_output_directory).global_args('-progress', 'pipe:1').compile()
         elif (self.media_type == "Audio"):
             # for audio, track progress, but no custom settings
             self.set_total_duration()
-            self.process = (
-                ffmpeg
-                .input(self.current_file)
-                .output(new_output_directory)
-                .global_args('-progress', 'pipe:1')  # send progress to stdout
-                .run_async(pipe_stdout=True, pipe_stderr=True)  # run it asynchronously
-            )
+            cmd = ffmpeg.input(self.current_file).output(new_output_directory).global_args('-progress', 'pipe:1').compile()
         else:
             # get best vcodec and acodec for ffmpeg to use before starting process for this
             current_vcodec = self.get_vcodec()
             current_acodec = self.get_acodec()
             self.set_total_duration()
-            self.process = (
-                ffmpeg
-                .input(self.current_file)
-                .output(new_output_directory, vcodec=current_vcodec, acodec=current_acodec)
-                .global_args('-progress', 'pipe:1')  # send progress to stdout
-                .run_async(pipe_stdout=True, pipe_stderr=True)  # asynchronous
+            cmd = ffmpeg.input(self.current_file).output(new_output_directory, vcodec=current_vcodec, acodec=current_acodec).global_args('-progress', 'pipe:1').compile()
+
+        # use this to start the process, using subprocess.Popen specifically to access creationflags to hide command line windows.
+        if sys.platform == "win32":
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW  # flag to hide window on windows
+            )
+        else:
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
         # two variables to be used to signify when both are done
         stdout_done = threading.Event()
