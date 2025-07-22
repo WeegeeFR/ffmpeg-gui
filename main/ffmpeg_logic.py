@@ -25,6 +25,7 @@ class ffmpeg_logic:
         self.total_duration = None
         self.current_progress = "0%"
         self.output_directory = None
+        self.current_output_directory = None
         self.file_queue = []# file name in folder
         self.file_type = file_type
         self.media_type = media_type
@@ -137,15 +138,16 @@ class ffmpeg_logic:
     # function used to convert a file in the queue
     def convert_file(self):
         # mark as converting, check and make sure theres a path in the file queue
+        print("Starting conversion...")
         self.converting = True
         if len(self.file_queue) > 0:
             self.current_file = self.file_queue.pop()
+            self.cancel_flag.clear()
             process = self.run_process() # start and handle process of conversion
         else:
             # if not, signal that there's no more files to be converted
             self.finished = True
             self.gui_callback("Complete", None)
-        self.converting = False
     
     # function used to start halting all of the ffmpeg processes
     def cancel_conversion(self):
@@ -169,9 +171,9 @@ class ffmpeg_logic:
             # kill any lingering ffmpeg processes
             subprocess.run(["taskkill", "/f", "/im", "ffmpeg.exe"], shell=True)
             # remove the new file after process ends
-            if os.path.exists(self.output_directory):
+            if os.path.exists(self.current_output_directory):
                 try:
-                    os.remove(self.output_directory)
+                    os.remove(self.current_output_directory)
                 except Exception as e:
                     print(f"Failed to delete output file: {e}")
     
@@ -182,24 +184,22 @@ class ffmpeg_logic:
         file_name, _ = os.path.splitext(base_name)
         self.current_file_name = file_name
         new_output_file = file_name + self.desired_type
-        new_output_directory = os.path.join(self.output_directory, new_output_file)
-        self.output_directory = new_output_directory
+        self.current_output_directory = os.path.join(self.output_directory, new_output_file)
         cmd = None
-
         # make command to start process based on media type, compile it
         if (self.media_type == "Photo"):
             # for photo just convert 
-            cmd = ffmpeg.input(self.current_file).output(new_output_directory).global_args('-progress', 'pipe:1').compile()
+            cmd = ffmpeg.input(self.current_file).output(self.current_output_directory).global_args('-progress', 'pipe:1').compile()
         elif (self.media_type == "Audio"):
             # for audio, track progress, but no custom settings
             self.set_total_duration()
-            cmd = ffmpeg.input(self.current_file).output(new_output_directory).global_args('-progress', 'pipe:1').compile()
+            cmd = ffmpeg.input(self.current_file).output(self.current_output_directory).global_args('-progress', 'pipe:1').compile()
         else:
             # get best vcodec and acodec for ffmpeg to use before starting process for this
             current_vcodec = self.get_vcodec()
             current_acodec = self.get_acodec()
             self.set_total_duration()
-            cmd = ffmpeg.input(self.current_file).output(new_output_directory, vcodec=current_vcodec, acodec=current_acodec).global_args('-progress', 'pipe:1').compile()
+            cmd = ffmpeg.input(self.current_file).output(self.current_output_directory, vcodec=current_vcodec, acodec=current_acodec).global_args('-progress', 'pipe:1').compile()
 
         # use this to start the process, using popen to hide command line windows from staying up
         if sys.platform == "win32":
@@ -252,7 +252,9 @@ class ffmpeg_logic:
         # wait for said threads to be done, then callback that current conversion is finished
         def wait_for_completion():
             stdout_done.wait()
-            stderr_done.wait() 
+            stderr_done.wait()
+            self.converting = False
+            print("finished current conversion")
             self.gui_callback("Finished", None)
 
         # start a thread to wait for both threads to finish

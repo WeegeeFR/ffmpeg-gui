@@ -163,7 +163,8 @@ class GUI:
             # used to start a new file
             elif update == "Finished":
                 print("finished one conversion, starting another")
-                self.ffmpeg_logic.convert_file()
+                self.update_conversion("Start", None)
+                threading.Thread(target=self.ffmpeg_logic.convert_file, daemon=True).start()
             # if all files done, update gui and stop changes in loop
             elif update == "Complete":
                 print("conversion finished! stopping loop.")
