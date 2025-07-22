@@ -150,16 +150,30 @@ class ffmpeg_logic:
     # function used to start halting all of the ffmpeg processes
     def cancel_conversion(self):
         if self.process:
-            self.process.terminate()  # gracefully terminate the process
+            print("terming process...")
             try:
+                print("waiting for termination...")
+                self.process.terminate()  # gracefully terminate the process
                 self.process.wait(timeout=5)
+                print("Process terminated...")
             except subprocess.TimeoutExpired:
                 # process didn't terminate in time, force kill it
-                self.process.kill()
-            self.cancel_flag.set()  # set the cancel flag to indicate cancellation
+                print("Termination didn't work, force killing process...")
+                try:
+                    self.process.kill()
+                    self.process.wait()
+                    print("process killed.")
+                except Exception as e:
+                    print(f"Error during kill: {e}")
+            self.cancel_flag.set()
+            # kill any lingering ffmpeg processes
+            subprocess.run(["taskkill", "/f", "/im", "ffmpeg.exe"], shell=True)
             # remove the new file after process ends
             if os.path.exists(self.output_directory):
-                os.remove(self.output_directory)
+                try:
+                    os.remove(self.output_directory)
+                except Exception as e:
+                    print(f"Failed to delete output file: {e}")
     
     # function used to start a new process for the file conversion
     def run_process(self):
@@ -187,7 +201,7 @@ class ffmpeg_logic:
             self.set_total_duration()
             cmd = ffmpeg.input(self.current_file).output(new_output_directory, vcodec=current_vcodec, acodec=current_acodec).global_args('-progress', 'pipe:1').compile()
 
-        # use this to start the process, using subprocess.Popen specifically to access creationflags to hide command line windows.
+        # use this to start the process, using popen to hide command line windows from staying up
         if sys.platform == "win32":
             self.process = subprocess.Popen(
                 cmd,
@@ -235,7 +249,7 @@ class ffmpeg_logic:
         threading.Thread(target=capture_output, daemon=True).start()
         threading.Thread(target=capture_error, daemon=True).start()
 
-        # wait for said threads to be done
+        # wait for said threads to be done, then callback that current conversion is finished
         def wait_for_completion():
             stdout_done.wait()
             stderr_done.wait() 

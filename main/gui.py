@@ -146,7 +146,7 @@ class GUI:
 
     # used as a communication tool between ffmpeg logic class and the gui  
     def update_conversion(self, update, info):
-        # only do anything if conversion is actually happening
+        # only do anything if conversion is actually happening, otherwise switch back to options
         if self.converting == True:
             # used to start a new file
             if update == "Start":
@@ -172,9 +172,14 @@ class GUI:
                 self.current_time.set("")
                 self.current_progress.set("100%")
                 self.starting_label = tk.Label(self.conversion_frame, text="Finished conversion!").grid(column=0, row=0, padx=0, pady=10)
-        # used to switch screens
-        if update == "Cancelled":
-            self.converting = False
+            # if cancel button is pressed while converting
+            elif update == "Cancelled":
+                self.converting = False
+                self.ffmpeg_logic.cancel_conversion()
+                self.conversion_frame.grid_forget()
+                self.frame.grid()
+        # if no conversion is happening, means finish button was pressed, switch back to other screen
+        else:
             self.conversion_frame.grid_forget()
             self.frame.grid()
 
