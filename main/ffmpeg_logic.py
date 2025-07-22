@@ -11,7 +11,7 @@ from pathlib import Path
 # need this for folder checks
 valid_photo_conversion_types = [".png", "jpg", ".jpeg", ".webp" ".bmp", ".apng", ".ico"]
 valid_audio_conversion_types = [".mp3", ".wav", ".m4a", ".aac", ".wma", ".alac", ".flac", ".ogg"]
-valid_video_conversion_types = [".mp4", ".wmv", ".mov", ".mkv", ".hevc"]
+valid_video_conversion_types = [".mp4", ".wmv", ".mov", ".mkv", ".m4v",".hevc"]
 
 class ffmpeg_logic:
     # init function, used to make default window and variables
